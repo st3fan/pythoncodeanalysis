@@ -54,12 +54,19 @@ class Identifier(ast.NodeVisitor):
     def visit_FunctionDef(self, node):
         self.frames.append(NestedFunction(node.name))
 
-        if not len(self.frames) and len(node.decorator_list) == 1 and \
+        if len(self.frames) == 1 and len(node.decorator_list) == 1 and \
                 isinstance(node.decorator_list[0], ast.Call) and \
                 node.decorator_list[0].func.id == 'route':
             uri = node.decorator_list[0].args[0].s
-            method = 'GET'  # node.decorator_list[0].get('method', 'GET')
-            self.handlers[uri, method] = node
+
+            kw = node.decorator_list[0].keywords
+            if len(kw) == 1 and kw[0].arg == 'method' and \
+                    isinstance(kw[0].value, ast.Str):
+                method = kw[0].value.s
+            else:
+                method = 'GET'
+
+            self.handlers[method, uri] = node
 
         self.generic_visit(node)
         self.frames.pop()
@@ -87,7 +94,7 @@ class Identifier(ast.NodeVisitor):
 
     def visit_Return(self, node):
         self.generic_visit(node)
-        if self.taint[node.value]:
+        if self.taint.get(node.value):
             self.errors.append('Taint fail found at %d' % node.lineno)
 
 
