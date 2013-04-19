@@ -28,6 +28,11 @@ def root4():
     return '<p>%s</p>' % (a,)
 
 
+@route('/5')
+def root5():
+    return '<p>' + request.query.xss + '</p>'
+
+
 @route('/6')
 def root6():
     a, b = request.query.xss1, request.query.xss2

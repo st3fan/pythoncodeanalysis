@@ -51,6 +51,7 @@ class TaintList(object):
 
     def __getitem__(self, index):
         """Find this item in one of the frames."""
+        # TODO self.field should point to the lowest NestedClass
         for x in xrange(self.l.__len__()):
             if index in self.l[-x].taint:
                 return self.l[-x].taint[index]
@@ -64,6 +65,7 @@ class TaintList(object):
         return ret
 
     def __setitem__(self, index, value):
+        # TODO self.field should point to the lowest NestedClass
         self.l[-1].taint[index] = value
 
 
@@ -119,11 +121,13 @@ class Identifier(ast.NodeVisitor):
     def visit_FunctionDef(self, node):
         self.frames.append(NestedFunction(node.name))
 
+        # TODO support multiple decorators
         if len(self.frames) == 1 and len(node.decorator_list) == 1 and \
                 isinstance(node.decorator_list[0], ast.Call) and \
                 node.decorator_list[0].func.id == 'route':
             uri = node.decorator_list[0].args[0].s
 
+            # TODO support multiple keyword arguments
             kw = node.decorator_list[0].keywords
             if len(kw) == 1 and kw[0].arg == 'method' and \
                     isinstance(kw[0].value, ast.Str):
@@ -162,6 +166,20 @@ class Identifier(ast.NodeVisitor):
                         except Exception as e:
                             print 'exc', e
 
+        # str + variable or variable + str
+        elif isinstance(node.op, ast.Add):
+            node.taint = TaintEntry()
+            if isinstance(node.left, ast.Str) and \
+                    isinstance(node.right, (ast.Name, ast.Attribute)):
+                node.taint.update(self.taint[self.name(node.right)])
+            elif isinstance(node.right, ast.Str) and \
+                    isinstance(node.left, (ast.Name, ast.Attribute)):
+                node.taint.update(self.taint[self.name(node.left)])
+            if hasattr(node.left, 'taint'):
+                node.taint.update(node.left.taint)
+            if hasattr(node.right, 'taint'):
+                node.taint.update(node.right.taint)
+
     def visit_Assign(self, node):
         self.generic_visit(node)
 
@@ -177,6 +195,7 @@ class Identifier(ast.NodeVisitor):
                 isinstance(node.targets[0], ast.Tuple) and \
                 isinstance(node.value, ast.Tuple) and \
                 len(node.targets[0].elts) == len(node.value.elts):
+            # TODO transaction kind of updating the taint
             for x in xrange(node.value.elts.__len__()):
                 srcname = self.name(node.value.elts[x])
                 dstname = self.name(node.targets[0].elts[x])
