@@ -165,12 +165,22 @@ class Identifier(ast.NodeVisitor):
     def visit_Assign(self, node):
         self.generic_visit(node)
 
+        # single assignment
         if len(node.targets) == 1 and \
                 isinstance(node.targets[0], ast.Name) and \
                 isinstance(node.value, (ast.Name, ast.Attribute)):
             srcname = self.name(node.value)
             dstname = self.name(node.targets[0])
             self.taint[dstname] = self.taint[srcname]
+        # multiple assignments, but with equal count on both sides
+        elif len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Tuple) and \
+                isinstance(node.value, ast.Tuple) and \
+                len(node.targets[0].elts) == len(node.value.elts):
+            for x in xrange(node.value.elts.__len__()):
+                srcname = self.name(node.value.elts[x])
+                dstname = self.name(node.targets[0].elts[x])
+                self.taint[dstname] = self.taint[srcname]
 
     def visit_Return(self, node):
         self.generic_visit(node)

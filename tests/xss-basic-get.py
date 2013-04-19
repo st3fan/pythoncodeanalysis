@@ -27,5 +27,11 @@ def root4():
     a = request.query.xss
     return '<p>%s</p>' % (a,)
 
+
+@route('/6')
+def root6():
+    a, b = request.query.xss1, request.query.xss2
+    return '<p>%s, %s</p>' % (a, b)
+
 if __name__ == '__main__':
     run(port=8000)
