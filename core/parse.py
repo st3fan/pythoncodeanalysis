@@ -1,22 +1,70 @@
 import ast
 from utils.astpp import dump
+from rules.sources import is_source
 
 
 class NestedFrame(object):
+    def __init__(self):
+        self.taint = {}
+
+
+class NestedModule(NestedFrame):
     pass
+
+
+class NestedClass(NestedFrame):
+    pass
+
+
+class NestedFunction(NestedFrame):
+    def __init__(self, funcname):
+        NestedFrame.__init__(self)
+        self.funcname = funcname
 
 
 class NestedLambda(NestedFrame):
     pass
 
 
-class NestedFunction(NestedFrame):
-    def __init__(self, funcname):
-        self.funcname = funcname
+class TaintEntry(object):
+    def __init__(self, affects=0):
+        self.affects = affects
+
+    def update(self, other):
+        if isinstance(other, (int, long)):
+            self.affects |= other
+        elif isinstance(other, TaintEntry):
+            self.affects |= other.affects
+        else:
+            raise Exception('Invalid TaintEntry update object')
+
+    def __repr__(self):
+        return '<TaintEntry: %d>' % self.affects
+
+    def __nonzero__(self):
+        return bool(self.affects)
 
 
-class NestedClass(NestedFrame):
-    pass
+class TaintList(object):
+    def __init__(self, l):
+        self.l = l
+
+    def __getitem__(self, index):
+        """Find this item in one of the frames."""
+        for x in xrange(self.l.__len__()):
+            if index in self.l[-x].taint:
+                return self.l[-x].taint[index]
+        raise IndexError('key not found: %s' % index)
+
+    def get(self, index, default=None):
+        try:
+            ret = self.__getitem__(index)
+        except IndexError:
+            return default
+        return ret
+
+    def __setitem__(self, index, value):
+        self.l[-1].taint[index] = value
 
 
 class Identifier(ast.NodeVisitor):
@@ -25,31 +73,48 @@ class Identifier(ast.NodeVisitor):
     def __init__(self, *args, **kwargs):
         ast.NodeVisitor.__init__(self, *args, **kwargs)
 
-        # global variables
-        self.g = {}
-
         # request/route handlers
         self.handlers = {}
 
-        # taint data
-        self.taint = {}
-
-        # nested frames
-        self.frames = []
+        # nested frames & initialize module frame
+        self._frames = [NestedModule()]
 
         # errors
         self.errors = []
 
+        # overloaded taint member
+        self.taint = TaintList(self.frames)
+
+    @property
+    def frames(self):
+        return self._frames
+
+    @frames.setter
+    def set_frames(self, value):
+        raise Exception('TODO - update self.taint as well')
+
+    def name(self, node):
+        """Return a string representation of various nodes."""
+        if isinstance(node, ast.Attribute):
+            return self.name(node.value) + '.' + node.attr
+        elif isinstance(node, ast.Name):
+            ret = self.taint.get(node.id, node.id)
+            return node.id if isinstance(ret, TaintEntry) else ret
+        raise Exception('TODO - add support for %s node' %
+                        node.__class__.__name__)
+
     def visit_Import(self, node):
         self.generic_visit(node)
+
         for alias in node.names:
-            self.g[alias.asname or alias.name] = alias.name
+            self.taint[alias.asname or alias.name] = alias.name
 
     def visit_ImportFrom(self, node):
         self.generic_visit(node)
+
         for alias in node.names:
             asname = alias.asname or alias.name
-            self.g[asname] = node.module + '.' + alias.name
+            self.taint[asname] = node.module + '.' + alias.name
 
     def visit_FunctionDef(self, node):
         self.frames.append(NestedFunction(node.name))
@@ -73,29 +138,46 @@ class Identifier(ast.NodeVisitor):
 
     def visit_Attribute(self, node):
         self.generic_visit(node)
-        if isinstance(node.value, ast.Attribute) and \
-                isinstance(node.value.value, ast.Name) and \
-                node.value.attr == 'query' and \
-                node.value.value.id == 'request':
-            self.taint[node] = True
+
+        name = self.name(node)
+        self.taint[name] = TaintEntry(affects=is_source(name))
 
     def visit_BinOp(self, node):
         self.generic_visit(node)
+
         # 'fmt' % args
         if isinstance(node.op, ast.Mod) and isinstance(node.left, ast.Str):
             # 'fmt' % arg
-            if isinstance(node.right, ast.Attribute):
-                self.taint[node] = self.taint[node.right]
+            if isinstance(node.right, (ast.Name, ast.Attribute)):
+                node.taint = self.taint[self.name(node.right)]
             # 'fmt' % (args,)
             elif isinstance(node.right, ast.Tuple):
+                node.taint = TaintEntry()
                 for el in node.right.elts:
-                    self.taint[node] = \
-                        self.taint.get(node) or self.taint.get(el)
+                    if hasattr(el, 'taint'):
+                        node.taint.update(el.taint)
+                    else:
+                        try:
+                            node.taint.update(self.taint[self.name(el)])
+                        except Exception as e:
+                            print 'exc', e
+
+    def visit_Assign(self, node):
+        self.generic_visit(node)
+
+        if len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and \
+                isinstance(node.value, (ast.Name, ast.Attribute)):
+            srcname = self.name(node.value)
+            dstname = self.name(node.targets[0])
+            self.taint[dstname] = self.taint[srcname]
 
     def visit_Return(self, node):
         self.generic_visit(node)
-        if self.taint.get(node.value):
-            self.errors.append('Taint fail found at %d' % node.lineno)
+
+        if hasattr(node.value, 'taint') and node.value.taint:
+            self.errors.append('Taint fail (%s) found at %d' %
+                               (node.value.taint, node.lineno))
 
 
 def parse(fname):

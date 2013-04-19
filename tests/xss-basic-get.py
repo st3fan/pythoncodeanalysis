@@ -15,5 +15,17 @@ def root():
 def root2():
     return '<p>%s, %s</p>' % (request.query.xss1, request.query.xss2)
 
+
+@route('/3')
+def root3():
+    a = request.query.xss
+    return '<p>%s</p>' % a
+
+
+@route('/4')
+def root4():
+    a = request.query.xss
+    return '<p>%s</p>' % (a,)
+
 if __name__ == '__main__':
     run(port=8000)
