@@ -1,13 +1,9 @@
+from rules.base import Base
 
 
-class Source:
+class Source(Base):
     """Base class for all Sources."""
-    XSS, SQLI, DB = 1, 2, 4
-    GENERIC = SQLI | DB
-
-    def __init__(self, framework, version):
-        self.framework = framework
-        self.version = version
+    GENERIC = Base.SQLI | Base.DB
 
 
 class AttributeSource(Source):

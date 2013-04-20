@@ -1,5 +1,7 @@
 import ast
 from utils.astpp import dump
+from rules.base import Base
+from rules.sinks import is_function_sink
 from rules.sources import is_source
 
 
@@ -20,6 +22,8 @@ class NestedFunction(NestedFrame):
     def __init__(self, funcname):
         NestedFrame.__init__(self)
         self.funcname = funcname
+
+        self.request_handler = None
 
 
 class NestedLambda(NestedFrame):
@@ -122,7 +126,7 @@ class Identifier(ast.NodeVisitor):
         self.frames.append(NestedFunction(node.name))
 
         # TODO support multiple decorators
-        if len(self.frames) == 1 and len(node.decorator_list) == 1 and \
+        if len(self.frames) == 2 and len(node.decorator_list) == 1 and \
                 isinstance(node.decorator_list[0], ast.Call) and \
                 node.decorator_list[0].func.id == 'route':
             uri = node.decorator_list[0].args[0].s
@@ -136,6 +140,12 @@ class Identifier(ast.NodeVisitor):
                 method = 'GET'
 
             self.handlers[method, uri] = node
+
+            # also keep some metadata for the NestedFunction
+            self.frames[1].request_handler = method, uri
+
+            # TODO less hax, moar dynamic
+            node.sink = is_function_sink(self.taint['route'])
 
         self.generic_visit(node)
         self.frames.pop()
@@ -204,9 +214,27 @@ class Identifier(ast.NodeVisitor):
     def visit_Return(self, node):
         self.generic_visit(node)
 
-        if hasattr(node.value, 'taint') and node.value.taint:
-            self.errors.append('Taint fail (%s) found at %d' %
-                               (node.value.taint, node.lineno))
+        # if the current frame is two, i.e., a function inside a module, then
+        # we have to check against the DecoratedReturnSink
+        if len(self.frames) == 2 and \
+                isinstance(self.frames[1], NestedFunction) and \
+                not self.frames[1].request_handler is None:
+
+            # get the taint for this function
+            fnnode = self.handlers.get(self.frames[1].request_handler, 0)
+            source = sink = 0
+
+            # get the source taint
+            if hasattr(node.value, 'taint') and node.value.taint:
+                source = node.value.taint.affects
+
+            # get the sink taint
+            sink = getattr(fnnode, 'sink', 0)
+
+            if source & sink:
+                self.errors.append('Taint fail (%s) found at %d' %
+                                   (Base.taint_str(source & sink),
+                                    node.lineno))
 
 
 def parse(fname):
