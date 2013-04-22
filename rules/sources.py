@@ -8,7 +8,6 @@ class Source(Base):
 
 class AttributeSource(Source):
     """Class for defining Attribute sources."""
-
     def __init__(self, framework, version, baseattr, issource, affects):
         Source.__init__(self, framework, version)
         self.baseattr = baseattr

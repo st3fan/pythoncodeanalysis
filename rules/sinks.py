@@ -7,7 +7,6 @@ class Sink(Base):
 
 class DecoratedReturnSink(Sink):
     """Sink for Decorated functions which return a value."""
-
     def __init__(self, framework, version, decorator, issink, affects):
         Sink.__init__(self, framework, version)
         self.decorator = decorator

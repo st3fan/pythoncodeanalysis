@@ -4,6 +4,7 @@ curl -S http://localhost:8000/?xss=<script>alert(1)</script>
 
 """
 from bottle import request, route, run
+from bottle import html_escape
 
 
 @route('/')
@@ -37,6 +38,16 @@ def root5():
 def root6():
     a, b = request.query.xss1, request.query.xss2
     return '<p>%s, %s</p>' % (a, b)
+
+
+@route('/7')
+def root7():
+    return '<p>%s</p>' % html_escape(request.query.xss)
+
+
+def root8():
+    return '<p>%s</p>' % request.query.xss
+
 
 if __name__ == '__main__':
     run(port=8000)

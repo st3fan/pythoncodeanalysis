@@ -1,6 +1,7 @@
 import ast
 from utils.astpp import dump
 from rules.base import Base
+from rules.sanitizers import is_sanitizer
 from rules.sinks import is_function_sink
 from rules.sources import is_source
 
@@ -47,6 +48,12 @@ class TaintEntry(object):
 
     def __nonzero__(self):
         return bool(self.affects)
+
+    def __and__(self, other):
+        return TaintEntry(self.affects & other)
+
+    def __rand__(self, other):
+        return TaintEntry(self.affects & other)
 
 
 class TaintList(object):
@@ -164,6 +171,8 @@ class Identifier(ast.NodeVisitor):
             # 'fmt' % arg
             if isinstance(node.right, (ast.Name, ast.Attribute)):
                 node.taint = self.taint[self.name(node.right)]
+            elif isinstance(node.right, ast.Call):
+                node.taint = node.right.taint
             # 'fmt' % (args,)
             elif isinstance(node.right, ast.Tuple):
                 node.taint = TaintEntry()
@@ -211,6 +220,26 @@ class Identifier(ast.NodeVisitor):
                 dstname = self.name(node.targets[0].elts[x])
                 self.taint[dstname] = self.taint[srcname]
 
+    def visit_Call(self, node):
+        self.generic_visit(node)
+
+        # check for simple sanitizers (which operate on one parameter only)
+        if len(node.args) == 1:
+            # we strip certain taints when it is in fact a simple sanitizer
+            if not node.starargs and not node.kwargs:
+                stripped_taint = is_sanitizer(self.name(node.func))
+            else:
+                stripped_taint = 0
+
+            if hasattr(node.args[0], 'taint'):
+                node.taint = node.args[0].taint & ~stripped_taint
+            else:
+                try:
+                    name = self.name(node.args[0])
+                    node.taint = self.taint[name] & ~stripped_taint
+                except Exception:
+                    pass
+
     def visit_Return(self, node):
         self.generic_visit(node)
 
@@ -225,11 +254,16 @@ class Identifier(ast.NodeVisitor):
             source = sink = 0
 
             # get the source taint
-            if hasattr(node.value, 'taint') and node.value.taint:
-                source = node.value.taint.affects
+            if hasattr(node.value, 'taint'):
+                source = node.value.taint
+            else:
+                try:
+                    source = self.taint[self.name(node.value)]
+                except Exception:
+                    pass
 
             # get the sink taint
-            sink = getattr(fnnode, 'sink', 0)
+            sink = getattr(fnnode, 'sink', TaintEntry())
 
             if source & sink:
                 self.errors.append('Taint fail (%s) found at %d' %
