@@ -49,5 +49,12 @@ def root8():
     return '<p>%s</p>' % request.query.xss
 
 
+@route('/9')
+def root9():
+    a = '<pre>' + request.query.code + '</pre>'
+    b = '<html><body>%s</body></html>' % a
+    return b
+
+
 if __name__ == '__main__':
     run(port=8000)

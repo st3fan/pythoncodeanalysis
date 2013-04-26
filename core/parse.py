@@ -209,6 +209,12 @@ class Identifier(ast.NodeVisitor):
             srcname = self.name(node.value)
             dstname = self.name(node.targets[0])
             self.taint[dstname] = self.taint[srcname]
+        # single assignment, but with .taint
+        elif len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and \
+                isinstance(node.value, ast.BinOp):
+            dstname = self.name(node.targets[0])
+            self.taint[dstname] = getattr(node.value, 'taint', TaintEntry())
         # multiple assignments, but with equal count on both sides
         elif len(node.targets) == 1 and \
                 isinstance(node.targets[0], ast.Tuple) and \
