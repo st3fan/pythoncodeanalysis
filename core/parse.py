@@ -1,34 +1,10 @@
 import ast
-from utils.astpp import dump
+from core.scope import ModuleScope, FunctionScope
 from rules.base import Base
 from rules.sanitizers import is_sanitizer
 from rules.sinks import is_function_sink
 from rules.sources import is_source
-
-
-class NestedFrame(object):
-    def __init__(self):
-        self.taint = {}
-
-
-class NestedModule(NestedFrame):
-    pass
-
-
-class NestedClass(NestedFrame):
-    pass
-
-
-class NestedFunction(NestedFrame):
-    def __init__(self, funcname):
-        NestedFrame.__init__(self)
-        self.funcname = funcname
-
-        self.request_handler = None
-
-
-class NestedLambda(NestedFrame):
-    pass
+from utils.astpp import dump
 
 
 class TaintEntry(object):
@@ -64,8 +40,8 @@ class TaintList(object):
         """Find this item in one of the frames."""
         # TODO self.field should point to the lowest NestedClass
         for x in xrange(self.l.__len__()):
-            if index in self.l[-x].taint:
-                return self.l[-x].taint[index]
+            if index in self.l[-x].symbol_map:
+                return self.l[-x].symbol_map[index]
         raise IndexError('key not found: %s' % index)
 
     def get(self, index, default=None):
@@ -76,8 +52,8 @@ class TaintList(object):
         return ret
 
     def __setitem__(self, index, value):
-        # TODO self.field should point to the lowest NestedClass
-        self.l[-1].taint[index] = value
+        # TODO self.field should point to the lowest ClassScope
+        self.l[-1].symbol_map[index] = value
 
 
 class Identifier(ast.NodeVisitor):
@@ -89,8 +65,8 @@ class Identifier(ast.NodeVisitor):
         # request/route handlers
         self.handlers = {}
 
-        # nested frames & initialize module frame
-        self._frames = [NestedModule()]
+        # frames scope & initialize module frame
+        self._frames = [ModuleScope()]
 
         # errors
         self.errors = []
@@ -130,7 +106,8 @@ class Identifier(ast.NodeVisitor):
             self.taint[asname] = node.module + '.' + alias.name
 
     def visit_FunctionDef(self, node):
-        self.frames.append(NestedFunction(node.name))
+        self.frames.append(FunctionScope(node.name))
+        self.frames[-1].request_handler = None
 
         # TODO support multiple decorators
         if len(self.frames) == 2 and len(node.decorator_list) == 1 and \
@@ -148,7 +125,7 @@ class Identifier(ast.NodeVisitor):
 
             self.handlers[method, uri] = node
 
-            # also keep some metadata for the NestedFunction
+            # also keep some metadata for the FunctionScope
             self.frames[1].request_handler = method, uri
 
             # TODO less hax, moar dynamic
@@ -252,7 +229,7 @@ class Identifier(ast.NodeVisitor):
         # if the current frame is two, i.e., a function inside a module, then
         # we have to check against the DecoratedReturnSink
         if len(self.frames) == 2 and \
-                isinstance(self.frames[1], NestedFunction) and \
+                isinstance(self.frames[1], FunctionScope) and \
                 not self.frames[1].request_handler is None:
 
             # get the taint for this function
