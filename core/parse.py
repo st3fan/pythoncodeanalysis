@@ -1,5 +1,5 @@
 import ast
-from core.scope import ModuleScope, FunctionScope
+from core.scope import ModuleScope, FunctionScope, ScopeManager
 from rules.base import Base
 from rules.sanitizers import is_sanitizer
 from rules.sinks import is_function_sink
@@ -32,30 +32,6 @@ class TaintEntry(object):
         return TaintEntry(self.affects & other)
 
 
-class TaintList(object):
-    def __init__(self, l):
-        self.l = l
-
-    def __getitem__(self, index):
-        """Find this item in one of the frames."""
-        # TODO self.field should point to the lowest NestedClass
-        for x in xrange(self.l.__len__()):
-            if index in self.l[-x].symbol_map:
-                return self.l[-x].symbol_map[index]
-        raise IndexError('key not found: %s' % index)
-
-    def get(self, index, default=None):
-        try:
-            ret = self.__getitem__(index)
-        except IndexError:
-            return default
-        return ret
-
-    def __setitem__(self, index, value):
-        # TODO self.field should point to the lowest ClassScope
-        self.l[-1].symbol_map[index] = value
-
-
 class Identifier(ast.NodeVisitor):
     """Identifies Sources, Sinks, and Sanitizers."""
 
@@ -65,22 +41,18 @@ class Identifier(ast.NodeVisitor):
         # request/route handlers
         self.handlers = {}
 
-        # frames scope & initialize module frame
-        self._frames = [ModuleScope()]
-
         # errors
         self.errors = []
 
-        # overloaded taint member
-        self.taint = TaintList(self.frames)
+        # initialize scope manager & module scope
+        self.scope = ScopeManager(ModuleScope())
+
+        # temporary solution (?)
+        self.taint = self.scope
 
     @property
-    def frames(self):
-        return self._frames
-
-    @frames.setter
-    def set_frames(self, value):
-        raise Exception('TODO - update self.taint as well')
+    def curscope(self):
+        return self.scope.scopes[-1]
 
     def name(self, node):
         """Return a string representation of various nodes."""
@@ -106,11 +78,11 @@ class Identifier(ast.NodeVisitor):
             self.taint[asname] = node.module + '.' + alias.name
 
     def visit_FunctionDef(self, node):
-        self.frames.append(FunctionScope(node.name))
-        self.frames[-1].request_handler = None
+        scope = self.scope.push(FunctionScope(node.name))
+        scope.request_handler = None
 
         # TODO support multiple decorators
-        if len(self.frames) == 2 and len(node.decorator_list) == 1 and \
+        if len(node.decorator_list) == 1 and \
                 isinstance(node.decorator_list[0], ast.Call) and \
                 node.decorator_list[0].func.id == 'route':
             uri = node.decorator_list[0].args[0].s
@@ -126,13 +98,13 @@ class Identifier(ast.NodeVisitor):
             self.handlers[method, uri] = node
 
             # also keep some metadata for the FunctionScope
-            self.frames[1].request_handler = method, uri
+            scope.request_handler = method, uri
 
             # TODO less hax, moar dynamic
             node.sink = is_function_sink(self.taint['route'])
 
         self.generic_visit(node)
-        self.frames.pop()
+        self.scope.pop()
 
     def visit_Attribute(self, node):
         self.generic_visit(node)
@@ -226,14 +198,12 @@ class Identifier(ast.NodeVisitor):
     def visit_Return(self, node):
         self.generic_visit(node)
 
-        # if the current frame is two, i.e., a function inside a module, then
-        # we have to check against the DecoratedReturnSink
-        if len(self.frames) == 2 and \
-                isinstance(self.frames[1], FunctionScope) and \
-                not self.frames[1].request_handler is None:
+        # check against the DecoratedReturnSink
+        if isinstance(self.curscope, FunctionScope) and \
+                not self.curscope.request_handler is None:
 
             # get the taint for this function
-            fnnode = self.handlers.get(self.frames[1].request_handler, 0)
+            fnnode = self.handlers.get(self.curscope.request_handler, 0)
             source = sink = 0
 
             # get the source taint
