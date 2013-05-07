@@ -17,9 +17,7 @@ class SimpleSanitizer(CallableTaint, Sanitizer):
         CallableTaint.__init__(self, taint_level)
 
     def call(self, arg):
-        ret = Taint(arg.taint.taint_level & ~self.taint_level)
-        print 'sani', arg.taint, self.taint_level, ret
-        return ret
+        return Taint(arg.taint.taint_level & ~self.taint_level)
 
 
 class _BottleRules(AttributeTaint, Sanitizer):
