@@ -1,36 +1,29 @@
 from rules.base import Base
+from core.taint import ConstAttributeTaint, AttributeTaint
 
 
 class Source(Base):
     """Base class for all Sources."""
-    GENERIC = Base.SQLI | Base.DB
 
 
-class AttributeSource(Source):
-    """Class for defining Attribute sources."""
-    def __init__(self, framework, version, baseattr, issource, affects):
-        Source.__init__(self, framework, version)
-        self.baseattr = baseattr
-        self.issource = issource
-        self.affects = affects
+class _BottleRequest(AttributeTaint, Source):
+    """Rules for bottle.request."""
+    def __init__(self):
+        Source.__init__(self, 'bottle.request', None)
+        AttributeTaint.__init__(self, -1)
+        self['GET'] = self['query'] = ConstAttributeTaint(Source.ALL)
+        self['POST'] = self['forms'] = ConstAttributeTaint(Source.SQLI)
+        self['params'] = ConstAttributeTaint(Source.ALL)
 
 
-def is_source(name):
-    for src in sources:
-        if name.startswith(src.baseattr) and src.issource(name, None):
-            return src.affects
-    return 0
+class _BottleRules(AttributeTaint, Source):
+    """Rules for the Bottle framework."""
+    def __init__(self):
+        Source.__init__(self, 'bottle', None)
+        AttributeTaint.__init__(self, -1)
+        self['request'] = _BottleRequest()
 
 
-sources = [
-    AttributeSource('bottle', None, 'bottle.request.GET',
-                    lambda x, ctx: True, Source.XSS | Source.GENERIC),
-    AttributeSource('bottle', None, 'bottle.request.query',
-                    lambda x, ctx: True, Source.XSS | Source.GENERIC),
-    AttributeSource('bottle', None, 'bottle.request.POST',
-                    lambda x, ctx: True, Source.GENERIC),
-    AttributeSource('bottle', None, 'bottle.request.forms',
-                    lambda x, ctx: True, Source.GENERIC),
-    AttributeSource('bottle', None, 'bottle.request.params',
-                    lambda x, ctx: True, Source.XSS | Source.GENERIC),
-]
+sources = {
+    'bottle': _BottleRules(),
+}

@@ -3,8 +3,8 @@ from core.scope import ModuleScope, FunctionScope, ScopeManager
 from core.taint import Taint
 from rules.base import Base
 from rules.sanitizers import is_sanitizer
-from rules.sinks import is_function_sink
-from rules.sources import is_source
+from rules.sinks import sinks, DecoratedReturnSink
+from rules.sources import sources
 from utils.astpp import dump
 
 
@@ -30,16 +30,6 @@ class Identifier(ast.NodeVisitor):
     def curscope(self):
         return self.scope.scopes[-1]
 
-    def name(self, node):
-        """Return a string representation of various nodes."""
-        if isinstance(node, ast.Attribute):
-            return self.name(node.value) + '.' + node.attr
-        elif isinstance(node, ast.Name):
-            ret = self.taint.get(node.id, node.id)
-            return node.id if isinstance(ret, TaintEntry) else ret
-        raise Exception('TODO - add support for %s node' %
-                        node.__class__.__name__)
-
     def visit_Import(self, node):
         self.generic_visit(node)
 
@@ -51,7 +41,12 @@ class Identifier(ast.NodeVisitor):
 
         for alias in node.names:
             asname = alias.asname or alias.name
-            self.taint[asname] = node.module + '.' + alias.name
+            taint = Taint(0)
+            if not sources[node.module].attr(alias.name) is None:
+                taint = sources[node.module].attr(alias.name)
+            elif not sinks[node.module].attr(alias.name) is None:
+                taint = sinks[node.module].attr(alias.name)
+            self.taint[asname] = taint
 
     def visit_FunctionDef(self, node):
         scope = self.scope.push(FunctionScope(node.name))
@@ -60,7 +55,8 @@ class Identifier(ast.NodeVisitor):
         # TODO support multiple decorators
         if len(node.decorator_list) == 1 and \
                 isinstance(node.decorator_list[0], ast.Call) and \
-                node.decorator_list[0].func.id == 'route':
+                isinstance(self.taint[node.decorator_list[0].func.id],
+                           DecoratedReturnSink):
             uri = node.decorator_list[0].args[0].s
 
             # TODO support multiple keyword arguments
@@ -76,17 +72,28 @@ class Identifier(ast.NodeVisitor):
             # also keep some metadata for the FunctionScope
             scope.request_handler = method, uri
 
-            # TODO less hax, moar dynamic
-            node.sink = is_function_sink(self.taint['route'])
+            # assign the sink taint
+            node.sink = self.taint[node.decorator_list[0].func.id]
 
         self.generic_visit(node)
         self.scope.pop()
 
+    def visit_Str(self, node):
+        self.generic_visit(node)
+        node.taint = Taint()
+
+    def visit_Num(self, node):
+        self.generic_visit(node)
+        node.taint = Taint()
+
+    def visit_Name(self, node):
+        self.generic_visit(node)
+        node.taint = self.taint.get(node.id, Taint())
+
     def visit_Attribute(self, node):
         self.generic_visit(node)
 
-        name = self.name(node)
-        self.taint[name] = TaintEntry(affects=is_source(name))
+        node.taint = node.value.taint.attr(node.attr)
 
     def visit_BinOp(self, node):
         self.generic_visit(node)
@@ -94,62 +101,33 @@ class Identifier(ast.NodeVisitor):
         # 'fmt' % args
         if isinstance(node.op, ast.Mod) and isinstance(node.left, ast.Str):
             # 'fmt' % arg
-            if isinstance(node.right, (ast.Name, ast.Attribute)):
-                node.taint = self.taint[self.name(node.right)]
-            elif isinstance(node.right, ast.Call):
+            if isinstance(node.right, (ast.Name, ast.Attribute, ast.Call)):
                 node.taint = node.right.taint
             # 'fmt' % (args,)
             elif isinstance(node.right, ast.Tuple):
-                node.taint = TaintEntry()
+                taint = Taint()
                 for el in node.right.elts:
-                    if hasattr(el, 'taint'):
-                        node.taint.update(el.taint)
-                    else:
-                        try:
-                            node.taint.update(self.taint[self.name(el)])
-                        except Exception as e:
-                            print 'exc', e
-
+                    taint.update(el.taint)
+                node.taint = taint
         # str + variable or variable + str
         elif isinstance(node.op, ast.Add):
-            node.taint = TaintEntry()
-            if isinstance(node.left, ast.Str) and \
-                    isinstance(node.right, (ast.Name, ast.Attribute)):
-                node.taint.update(self.taint[self.name(node.right)])
-            elif isinstance(node.right, ast.Str) and \
-                    isinstance(node.left, (ast.Name, ast.Attribute)):
-                node.taint.update(self.taint[self.name(node.left)])
-            if hasattr(node.left, 'taint'):
-                node.taint.update(node.left.taint)
-            if hasattr(node.right, 'taint'):
-                node.taint.update(node.right.taint)
+            node.taint = node.left.taint | node.right.taint
 
     def visit_Assign(self, node):
         self.generic_visit(node)
 
         # single assignment
-        if len(node.targets) == 1 and \
-                isinstance(node.targets[0], ast.Name) and \
-                isinstance(node.value, (ast.Name, ast.Attribute)):
-            srcname = self.name(node.value)
-            dstname = self.name(node.targets[0])
-            self.taint[dstname] = self.taint[srcname]
-        # single assignment, but with .taint
-        elif len(node.targets) == 1 and \
-                isinstance(node.targets[0], ast.Name) and \
-                isinstance(node.value, ast.BinOp):
-            dstname = self.name(node.targets[0])
-            self.taint[dstname] = getattr(node.value, 'taint', TaintEntry())
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            self.taint[node.targets[0].id] = node.value.taint
         # multiple assignments, but with equal count on both sides
         elif len(node.targets) == 1 and \
                 isinstance(node.targets[0], ast.Tuple) and \
                 isinstance(node.value, ast.Tuple) and \
                 len(node.targets[0].elts) == len(node.value.elts):
             # TODO transaction kind of updating the taint
-            for x in xrange(node.value.elts.__len__()):
-                srcname = self.name(node.value.elts[x])
-                dstname = self.name(node.targets[0].elts[x])
-                self.taint[dstname] = self.taint[srcname]
+            for x in xrange(len(node.value.elts)):
+                self.taint[node.targets[0].elts[x].id] = \
+                    node.value.elts[x].taint
 
     def visit_Call(self, node):
         self.generic_visit(node)
@@ -185,14 +163,9 @@ class Identifier(ast.NodeVisitor):
             # get the source taint
             if hasattr(node.value, 'taint'):
                 source = node.value.taint
-            else:
-                try:
-                    source = self.taint[self.name(node.value)]
-                except Exception:
-                    pass
 
             # get the sink taint
-            sink = getattr(fnnode, 'sink', TaintEntry())
+            sink = getattr(fnnode, 'sink', Taint())
 
             if source & sink:
                 self.errors.append('Taint fail (%s) found at %d' %

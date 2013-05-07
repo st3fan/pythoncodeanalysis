@@ -3,6 +3,7 @@
 class Base:
     """Base class for all Rule Classes."""
     XSS, SQLI, DB = 1, 2, 4
+    ALL = XSS | SQLI | DB
 
     def __init__(self, framework, version):
         self.framework = framework

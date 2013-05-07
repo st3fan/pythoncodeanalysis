@@ -56,5 +56,11 @@ def root9():
     return b
 
 
+@route('/10')
+def root10():
+    a = request.query
+    return a.xss
+
+
 if __name__ == '__main__':
     run(port=8000)
