@@ -35,7 +35,7 @@ class Taint(object):
         return Taint(~self.taint_level)
 
     def attr(self, attrname, default=None):
-        return Taint()
+        raise Exception('attr has to be implemented by a subclass')
 
 
 class AttributeTaint(Taint):
