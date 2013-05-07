@@ -1,35 +1,11 @@
 import ast
 from core.scope import ModuleScope, FunctionScope, ScopeManager
+from core.taint import Taint
 from rules.base import Base
 from rules.sanitizers import is_sanitizer
 from rules.sinks import is_function_sink
 from rules.sources import is_source
 from utils.astpp import dump
-
-
-class TaintEntry(object):
-    def __init__(self, affects=0):
-        self.affects = affects
-
-    def update(self, other):
-        if isinstance(other, (int, long)):
-            self.affects |= other
-        elif isinstance(other, TaintEntry):
-            self.affects |= other.affects
-        else:
-            raise Exception('Invalid TaintEntry update object')
-
-    def __repr__(self):
-        return '<TaintEntry: %d>' % self.affects
-
-    def __nonzero__(self):
-        return bool(self.affects)
-
-    def __and__(self, other):
-        return TaintEntry(self.affects & other)
-
-    def __rand__(self, other):
-        return TaintEntry(self.affects & other)
 
 
 class Identifier(ast.NodeVisitor):
