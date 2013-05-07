@@ -2,7 +2,7 @@ import ast
 from core.scope import ModuleScope, FunctionScope, ScopeManager
 from core.taint import Taint
 from rules.base import Base
-from rules.sanitizers import is_sanitizer
+from rules.sanitizers import sanitizers
 from rules.sinks import sinks, DecoratedReturnSink
 from rules.sources import sources
 from utils.astpp import dump
@@ -46,6 +46,8 @@ class Identifier(ast.NodeVisitor):
                 taint = sources[node.module].attr(alias.name)
             elif not sinks[node.module].attr(alias.name) is None:
                 taint = sinks[node.module].attr(alias.name)
+            elif not sanitizers[node.module].attr(alias.name) is None:
+                taint = sanitizers[node.module].attr(alias.name)
             self.taint[asname] = taint
 
     def visit_FunctionDef(self, node):
@@ -136,18 +138,9 @@ class Identifier(ast.NodeVisitor):
         if len(node.args) == 1:
             # we strip certain taints when it is in fact a simple sanitizer
             if not node.starargs and not node.kwargs:
-                stripped_taint = is_sanitizer(self.name(node.func))
+                node.taint = node.func.taint.call(*node.args)
             else:
-                stripped_taint = 0
-
-            if hasattr(node.args[0], 'taint'):
-                node.taint = node.args[0].taint & ~stripped_taint
-            else:
-                try:
-                    name = self.name(node.args[0])
-                    node.taint = self.taint[name] & ~stripped_taint
-                except Exception:
-                    pass
+                node.taint = node.args[0].taint
 
     def visit_Return(self, node):
         self.generic_visit(node)

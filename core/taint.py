@@ -31,6 +31,9 @@ class Taint(object):
         ret.update(other)
         return ret
 
+    def __invert__(self):
+        return Taint(~self.taint_level)
+
     def attr(self, attrname, default=None):
         return Taint()
 
@@ -55,4 +58,10 @@ class AttributeTaint(Taint):
 class ConstAttributeTaint(Taint):
     """One taint for all attributes."""
     def attr(self, attrname, default=None):
+        return Taint(self.taint_level)
+
+
+class CallableTaint(Taint):
+    """Callable functions returning a taint based on the input."""
+    def call(self, *args, **kwargs):
         return Taint(self.taint_level)
