@@ -4,7 +4,10 @@ import sys
 class Taint(object):
     """Base class for tainted objects."""
     def __init__(self, taint_level=0):
-        self.taint_level = taint_level
+        if isinstance(taint_level, Taint):
+            self.taint_level = taint_level.taint_level
+        else:
+            self.taint_level = taint_level
 
     def update(self, other):
         if isinstance(other, (int, long)):
@@ -21,10 +24,7 @@ class Taint(object):
         return bool(self.taint_level)
 
     def __and__(self, other):
-        return Taint(self.taint_level & other)
-
-    def __rand__(self, other):
-        return Taint(self.taint_level & other)
+        return Taint(self.taint_level & other.taint_level)
 
     def __or__(self, other):
         ret = Taint(self.taint_level)
@@ -33,6 +33,9 @@ class Taint(object):
 
     def __invert__(self):
         return Taint(~self.taint_level)
+
+    def __cmp__(self, other):
+        return self.taint_level != other.taint_level
 
     def attr(self, attrname, default=None):
         raise Exception('attr has to be implemented by a subclass')

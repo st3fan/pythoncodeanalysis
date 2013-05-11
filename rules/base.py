@@ -1,8 +1,9 @@
+from core.taint import Taint
 
 
 class Base:
     """Base class for all Rule Classes."""
-    XSS, SQLI, DB = 1, 2, 4
+    XSS, SQLI, DB = Taint(1), Taint(2), Taint(4)
     ALL = XSS | SQLI | DB
 
     def __init__(self, framework, version):
