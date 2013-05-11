@@ -41,6 +41,41 @@ class Taint(object):
         raise Exception('attr has to be implemented by a subclass')
 
 
+class TaintList(object):
+    """List of Taint objects - handles phi expressions."""
+    def __init__(self, *taints):
+        self.taints = []
+        self.taint_level = 0
+        for taint in taints:
+            if isinstance(taint, TaintList):
+                self.taints += taint.taints
+                self.taint_level |= taint.taint_level
+            elif isinstance(taint, list):
+                self.taints += taint
+                for t in taint:
+                    self.taint_level |= t.taint_level
+            else:
+                self.taints.append(taint)
+                self.taint_level |= taint.taint_level
+
+        # filter out duplicate taints
+        self.taints = list(set(self.taints))
+
+    def __repr__(self):
+        return '<%s: %s>' % (self.__class__.__name__,
+                             ', '.join(repr(x) for x in self.taints))
+
+    def __nonzero__(self):
+        return any(self.taints)
+
+    def __and__(self, other):
+        ret = []
+        for taint in self.taints:
+            if taint & other:
+                ret.append(taint & other)
+        return TaintList(ret)
+
+
 class AttributeTaint(Taint):
     """Taint object with support for attributes."""
     def __init__(self, taint_level=0):

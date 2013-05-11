@@ -1,4 +1,5 @@
 import ast
+import copy
 from core.scope import ModuleScope, FunctionScope, ScopeManager
 from core.taint import Taint
 from rules.base import Base
@@ -164,6 +165,31 @@ class Identifier(ast.NodeVisitor):
                 self.errors.append('Taint fail (%s) found at %d' %
                                    (Base.taint_str(source & sink),
                                     node.lineno))
+
+    def visit_If(self, node):
+        # handle the comparison under our normal scope
+        self.visit(node.test)
+
+        origscope = self.scope
+        thenscope = copy.deepcopy(self.scope)
+        elsescope = copy.deepcopy(self.scope)
+
+        # handle the then body
+        self.scope = self.taint = thenscope
+        for x in node.body:
+            self.visit(x)
+
+        # handle the else body
+        self.scope = self.taint = elsescope
+        for x in node.orelse:
+            self.visit(x)
+
+        # conservative tainting for now
+        origscope.merge(thenscope)
+        origscope.merge(elsescope)
+
+        # restore the scope
+        self.scope = self.taint = origscope
 
 
 def parse(fname):

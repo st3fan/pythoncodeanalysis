@@ -1,3 +1,4 @@
+from core.taint import TaintList
 
 
 class Scope(object):
@@ -73,3 +74,31 @@ class ScopeManager(object):
             return self.lookup(symbol)
         except IndexError:
             return default
+
+    def intersection(self, other):
+        """Intersection between two scopes manager objects."""
+        assert len(self.scopes) == len(other.scopes)
+        s, o = self.scopes, other.scopes
+
+        ret = []
+        for x in xrange(len(self.scopes)):
+            scope = []
+            for k in s[x].symbol_map:
+                if not k in o[x].symbol_map:
+                    scope.append((k, s[x].symbol_map[k]))
+                elif s[x].symbol_map[k] != o[x].symbol_map[k]:
+                    scope.append((k, s[x].symbol_map[k]))
+                    scope.append((k, o[x].symbol_map[k]))
+            for k in (_ for _ in o[x].symbol_map if not _ in s[x].symbol_map):
+                scope.append((k, o[x].symbol_map[k]))
+            ret.append(scope)
+        return ret
+
+    def merge(self, other):
+        """Merge the other scope into our scope."""
+        inter = self.intersection(other)
+        for x in xrange(len(inter)):
+            for k, v in inter[x]:
+                old = self.scopes[x].symbol_map.get(k, [])
+                old = [old] if not isinstance(old, list) else old
+                self.scopes[x].symbol_map[k] = TaintList(v, *old)
