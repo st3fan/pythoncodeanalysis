@@ -91,7 +91,10 @@ class Identifier(ast.NodeVisitor):
 
     def visit_Name(self, node):
         self.generic_visit(node)
-        node.taint = self.taint.get(node.id, Taint())
+        if not isinstance(node.ctx, ast.Store):
+            node.taint = self.taint.get(node.id, Taint())
+        else:
+            node.taint = Taint()
 
     def visit_Attribute(self, node):
         self.generic_visit(node)
