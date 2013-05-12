@@ -48,5 +48,23 @@ def root4():
         a = request.query.value2
     return a
 
+
+@route('/5')
+def root5():
+    a = 'default value'
+    for x in xrange(len(request.query.value)):
+        if x == 1:
+            a = request.query.value
+    return a
+
+
+@route('/6')
+def root6():
+    a = request.query.value
+    for x in xrange(len(request.query.value)):
+        a = 'default value'
+    return a
+
+
 if __name__ == '__main__':
     run(port=8000)

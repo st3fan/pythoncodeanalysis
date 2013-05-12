@@ -40,6 +40,10 @@ class Taint(object):
     def attr(self, attrname, default=None):
         raise Exception('attr has to be implemented by a subclass')
 
+    def call(self, *args, **kwargs):
+        """Callable functions returning a zero taint."""
+        return Taint(0)
+
 
 class TaintList(object):
     """List of Taint objects - handles phi expressions."""

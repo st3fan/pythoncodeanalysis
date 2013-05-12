@@ -194,6 +194,31 @@ class Identifier(ast.NodeVisitor):
         # restore the scope
         self.scope = self.taint = origscope
 
+    def visit_For(self, node):
+        # handle the iterator in our normal scope
+        self.generic_visit(node.iter)
+
+        origscope = self.scope
+        bodyscope = copy.deepcopy(self.scope)
+        elsescope = copy.deepcopy(self.scope)
+
+        # handle the body
+        self.scope = self.taint = bodyscope
+        for x in node.body:
+            self.visit(x)
+
+        # handle the else body
+        self.scope = self.taint = elsescope
+        for x in node.orelse:
+            self.visit(x)
+
+        # conservative tainting for now
+        origscope.merge(bodyscope)
+        origscope.merge(elsescope)
+
+        # restore the scope
+        self.scope = self.taint = origscope
+
 
 def parse(fname):
     node = ast.parse(open(fname, 'rb').read())
