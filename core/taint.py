@@ -1,3 +1,4 @@
+import ast
 import sys
 
 
@@ -43,6 +44,12 @@ class Taint(object):
     def call(self, *args, **kwargs):
         """Callable functions returning a zero taint."""
         return Taint(0)
+
+    def lookup(self, index):
+        raise Exception('lookup has to be implemented by a subclass')
+
+    def store(self, index, value):
+        raise Exception('store has to be implemented by a subclass')
 
 
 class TaintList(object):
@@ -107,3 +114,62 @@ class CallableTaint(Taint):
     """Callable functions returning a taint based on the input."""
     def call(self, *args, **kwargs):
         return Taint(self.taint_level)
+
+
+class DictionaryTaint(Taint):
+    """Taint for dictionaries."""
+    def __init__(self, keys, values):
+        Taint.__init__(self, -1)
+
+        self.const_taint = {}
+        self.dynamic_taint = Taint(0)
+
+        # have dynamic key-values been written to this dictionary?
+        self.has_dynamic = False
+
+        for x in xrange(len(keys)):
+            # it's a constant key index
+            if isinstance(keys[x], ast.Str):
+                self.const_taint[keys[x].s] = values[x].taint
+
+            # if it's a dynamic key, then we update the dynamic taint
+            self.dynamic_taint |= values[x].taint
+
+    def lookup(self, index):
+        # TODO support slices
+        if not isinstance(index, ast.Index):
+            raise Exception('unhandled lookup class: %s' %
+                            index.__class__.__name__)
+
+        # if there's a string index, then taint is a combination of the
+        # hardcoded key and the the dynamic taint, if set
+        if isinstance(index.value, ast.Str):
+            ret = self.const_taint.get(index.value.s, Taint())
+            return ret | self.dynamic_taint if self.has_dynamic else ret
+
+        if isinstance(index.value, (ast.Name, ast.Attribute)):
+            return self.dynamic_taint
+
+        raise Exception('unhandled index lookup class: %s' %
+                        index.value.__class__.__name__)
+
+    def store(self, index, value):
+        # TODO support slices
+        if not isinstance(index, ast.Index):
+            raise Exception('unhandled lookup class: %s' %
+                            index.__class__.__name__)
+
+        # the index is a constant index
+        if isinstance(index.value, ast.Str):
+            self.const_taint[index.value.s] = value.taint
+            return
+
+        # the index is an attribute or name
+        if isinstance(index.value, (ast.Name, ast.Attribute)):
+            self.has_dynamic = True
+            self.dynamic_taint |= value.taint
+            return
+
+        # we can't handle this at the moment
+        raise Exception('unhandled index lookup class: %s' %
+                        index.value.__class__.__name__)

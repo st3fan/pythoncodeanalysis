@@ -1,7 +1,7 @@
 import ast
 import copy
 from core.scope import ModuleScope, FunctionScope, ScopeManager
-from core.taint import Taint
+from core.taint import Taint, DictionaryTaint
 from rules.base import Base
 from rules.sanitizers import sanitizers
 from rules.sinks import sinks, DecoratedReturnSink
@@ -125,6 +125,11 @@ class Identifier(ast.NodeVisitor):
         # single assignment
         if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             self.taint[node.targets[0].id] = node.value.taint
+        # single dictionary assignment
+        elif len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Subscript):
+            node.targets[0].value.taint.store(node.targets[0].slice,
+                                              node.value)
         # multiple assignments, but with equal count on both sides
         elif len(node.targets) == 1 and \
                 isinstance(node.targets[0], ast.Tuple) and \
@@ -155,7 +160,7 @@ class Identifier(ast.NodeVisitor):
 
             # get the taint for this function
             fnnode = self.handlers.get(self.curscope.request_handler, 0)
-            source = sink = 0
+            source = sink = Taint(0)
 
             # get the source taint
             if hasattr(node.value, 'taint'):
@@ -218,6 +223,17 @@ class Identifier(ast.NodeVisitor):
 
         # restore the scope
         self.scope = self.taint = origscope
+
+    def visit_Dict(self, node):
+        self.generic_visit(node)
+
+        node.taint = DictionaryTaint(node.keys, node.values)
+
+    def visit_Subscript(self, node):
+        self.generic_visit(node)
+
+        node.taint = node.value.taint.lookup(node.slice)
+        print 'subscript', node.slice.value, node.taint
 
 
 def parse(fname):
