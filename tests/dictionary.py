@@ -3,6 +3,7 @@ from bottle import request, route, run
 
 @route('/')
 def root():
+    """key a is tainted."""
     d = {
         'a': request.query.value,
         'b': 'default value'
@@ -12,6 +13,7 @@ def root():
 
 @route('/2')
 def root2():
+    """key b is not tainted."""
     d = {
         'a': request.query.value,
         'b': 'default value'
@@ -21,6 +23,7 @@ def root2():
 
 @route('/3')
 def root3():
+    """index can be a and a is tainted."""
     d = {
         'a': request.query.value,
         'b': 'default value'
@@ -30,6 +33,7 @@ def root3():
 
 @route('/4')
 def root4():
+    """b can be overwritten, so b is tainted."""
     d = {
         'a': request.query.value,
         'b': 'default value'
@@ -40,6 +44,7 @@ def root4():
 
 @route('/5')
 def root5():
+    """couldn't possibly not be tainted."""
     d = {
         'a': request.query.value,
         'b': 'default value'
@@ -50,6 +55,7 @@ def root5():
 
 @route('/6')
 def root6():
+    """after assigning key c, b is still not tainted."""
     d = {
         'a': request.query.value,
         'b': 'default value'
@@ -60,6 +66,7 @@ def root6():
 
 @route('/7')
 def root7():
+    """after assigning key c, c is tainted."""
     d = {
         'a': request.query.value,
         'b': 'default value'
